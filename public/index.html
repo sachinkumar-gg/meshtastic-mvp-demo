@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MESHCOMM - Decentralized Comms Terminal</title>
+  <meta name="description" content="Decentralized network-free mesh communications terminal prototype over local Wi-Fi link.">
+  <link rel="stylesheet" href="css/terminal.css">
+</head>
+<body>
+  <div class="terminal-wrapper">
+    <div class="terminal-frame" id="terminal-frame">
+      <!-- Terminal Frame Header -->
+      <div class="frame-header">
+        <div class="frame-header-title">
+          <span class="title-bracket">┌─[</span>
+          <span class="title-badge">MESHCOMM</span>
+          <span class="title-bracket">]</span>
+        </div>
+        <div class="frame-header-meta">
+          <span id="identity-badge">you: ...</span>
+          <span id="mode-badge" class="tag-live">[LIVE]</span>
+          <span id="transport-badge" class="tag-transport">wifi</span>
+          <span id="peers-count-badge" class="tag-peers">peers: 0</span>
+          <span class="tag-no-internet">NO INTERNET</span>
+        </div>
+      </div>
+
+      <!-- Tabs Row -->
+      <div class="tabs-bar" role="tablist">
+        <button class="tab-btn active" id="tab-chat" data-view="chat-view" role="tab" aria-selected="true">[chat]</button>
+        <button class="tab-btn" id="tab-map" data-view="map-view" role="tab" aria-selected="false">map</button>
+        <button class="tab-btn" id="tab-nodes" data-view="nodes-view" role="tab" aria-selected="false">nodes</button>
+        <button class="tab-btn" id="tab-inspect" data-view="inspector-view" role="tab" aria-selected="false">inspect</button>
+      </div>
+
+      <!-- Main Viewport Panes -->
+      <main class="viewport-content">
+        <!-- 1. Chat View Pane -->
+        <section class="view-pane active" id="chat-view" role="tabpanel">
+          <div class="channel-bar">
+            <span class="channel-name" id="current-channel-label">#public</span>
+            <span class="channel-peers-count" id="active-peers-status">0 peers online</span>
+          </div>
+
+          <div class="chat-scroll" id="chat-messages" aria-live="polite">
+            <!-- Messages populated dynamically -->
+          </div>
+
+          <div class="chat-shortcuts">
+            <span class="shortcut-link" data-cmd="/help">/help</span>
+            <span class="shortcut-link" data-cmd="/map">/map</span>
+            <span class="shortcut-link" data-cmd="/nodes">/nodes</span>
+            <span class="shortcut-link" data-cmd="/scenario 1">/scenario 1</span>
+            <span class="shortcut-link" data-cmd="/nick ">/nick</span>
+          </div>
+        </section>
+
+        <!-- 2. Mesh Map View Pane (The Hero) -->
+        <section class="view-pane" id="map-view" role="tabpanel">
+          <div class="map-header">
+            <span style="font-weight: bold; color: var(--fg);">MESH MAP</span>
+            <div>
+              <span>mode: <span id="map-mode-indicator" class="tag-sim">[SIM]</span></span>
+              &nbsp;&nbsp;
+              <span style="color: var(--orange);">ttl: <span id="map-ttl-counter">7</span></span>
+            </div>
+          </div>
+
+          <div class="map-container" id="map-container">
+            <pre class="ascii-canvas" id="mesh-ascii-canvas"></pre>
+          </div>
+
+          <div class="map-legend">
+            <span>legend:</span>
+            <span><strong style="color: var(--green);">(●)</strong> online</span>
+            <span><strong style="color: var(--red);">(○)</strong> offline</span>
+            <span><span style="color: var(--border);">···</span> link</span>
+            <span><strong style="color: var(--yellow);">━━▶</strong> packet</span>
+          </div>
+
+          <div class="map-scenarios-bar">
+            <span style="color: var(--fg-dim);">&gt; scenario:</span>
+            <button class="scenario-btn" id="btn-scenario-1" data-scenario="1">[1 flood]</button>
+            <button class="scenario-btn" id="btn-scenario-2" data-scenario="2">[2 multi-hop dm]</button>
+            <button class="scenario-btn" id="btn-scenario-3" data-scenario="3">[3 kill node]</button>
+            <button class="scenario-btn" id="btn-scenario-reset" data-scenario="reset">[reset]</button>
+          </div>
+        </section>
+
+        <!-- 3. Nodes Table View Pane -->
+        <section class="view-pane" id="nodes-view" role="tabpanel">
+          <div class="table-header-info">
+            <span style="font-weight: bold; color: var(--fg);">NODES</span>
+            <span style="color: var(--fg-dim);">sorted: signal</span>
+          </div>
+
+          <table class="ascii-table" id="nodes-table">
+            <thead>
+              <tr>
+                <th>id</th>
+                <th>nick</th>
+                <th>signal</th>
+                <th>hops</th>
+                <th>battery</th>
+                <th>last seen</th>
+                <th>status</th>
+              </tr>
+            </thead>
+            <tbody id="nodes-tbody">
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </section>
+
+        <!-- 4. Packet Inspector View Pane -->
+        <section class="view-pane" id="inspector-view" role="tabpanel">
+          <div class="table-header-info">
+            <span style="font-weight: bold; color: var(--fg);">PACKET INSPECTOR</span>
+            <span id="inspect-msg-id-badge" style="color: var(--orange);">msg: none selected</span>
+          </div>
+
+          <div class="inspector-table" id="inspector-fields">
+            <div class="inspector-row">
+              <span class="inspector-key">src</span>
+              <span class="inspector-val" id="insp-src">-</span>
+            </div>
+            <div class="inspector-row">
+              <span class="inspector-key">dst</span>
+              <span class="inspector-val" id="insp-dst">-</span>
+            </div>
+            <div class="inspector-row">
+              <span class="inspector-key">msg id</span>
+              <span class="inspector-val highlight" id="insp-msg-id">-</span>
+            </div>
+            <div class="inspector-row">
+              <span class="inspector-key">type</span>
+              <span class="inspector-val" id="insp-type">-</span>
+            </div>
+            <div class="inspector-row">
+              <span class="inspector-key">ttl</span>
+              <span class="inspector-val highlight" id="insp-ttl">-</span>
+            </div>
+            <div class="inspector-row">
+              <span class="inspector-key">hops</span>
+              <span class="inspector-val highlight" id="insp-hops">-</span>
+            </div>
+            <div class="inspector-row">
+              <span class="inspector-key">transport</span>
+              <span class="inspector-val" style="color: var(--aqua);" id="insp-transport">wifi</span>
+            </div>
+            <div class="inspector-row">
+              <span class="inspector-key">enc</span>
+              <span class="inspector-val" id="insp-enc">none</span>
+            </div>
+            <div class="inspector-row">
+              <span class="inspector-key">payload</span>
+              <span class="inspector-val" id="insp-payload">-</span>
+            </div>
+            <div class="inspector-row">
+              <span class="inspector-key">status</span>
+              <span class="inspector-val" id="insp-status">-</span>
+            </div>
+          </div>
+
+          <div class="inspector-transports">
+            <div style="font-weight: bold; margin-bottom: 6px; color: var(--fg);">SWAPPABLE RADIO TRANSPORTS</div>
+            <div style="font-size: 13px; color: var(--fg-dim); line-height: 1.6;">
+              <div>• <span class="transport-badge-active">WIFI [ACTIVE]</span>: UDP Broadcast/Unicast link (802.11 Local Ad-Hoc/AP)</div>
+              <div>• <span class="transport-badge-future">BLE  [PLUGGABLE]</span>: Bluetooth Low Energy GATT mesh advertiser</div>
+              <div>• <span class="transport-badge-future">LoRa [PLUGGABLE]</span>: Semtech SX1262 915/868MHz long-range RF module</div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- Toast Bar -->
+      <div class="toast-bar" id="toast-bar"></div>
+
+      <!-- Bottom Input Prompt -->
+      <footer class="input-bar">
+        <label for="cli-input" class="input-prompt">&gt;</label>
+        <input type="text" id="cli-input" class="terminal-input" autocomplete="off" spellcheck="false" placeholder="Type a message or /help..." autofocus>
+        <span class="blinking-cursor">█</span>
+      </footer>
+    </div>
+  </div>
+
+  <!-- JavaScript Modules -->
+  <script src="js/chat.js"></script>
+  <script src="js/meshMap.js"></script>
+  <script src="js/nodesView.js"></script>
+  <script src="js/inspector.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

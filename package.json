@@ -1,0 +1,16 @@
+{
+  "name": "decentralized-comms",
+  "version": "1.0.0",
+  "description": "Decentralized mesh comms prototype over local Wi-Fi with Bitchat-style Gruvbox terminal UI",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "node1": "PORT=3000 UDP_PORT=41234 NODE_NICK=sachin NODE_ID=a3f9 node server.js",
+    "node2": "PORT=3001 UDP_PORT=41235 NODE_NICK=rohan NODE_ID=7c21 PEER_LIST=127.0.0.1:41234 node server.js",
+    "test": "node tests/integration.test.js",
+    "test:e2e": "node tests/e2e_ws.test.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
