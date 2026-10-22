@@ -3,7 +3,7 @@ const crypto = require('crypto');
 class Packet {
   constructor(options = {}) {
     this.msgId = options.msgId || crypto.randomBytes(3).toString('hex');
-    this.type = options.type || 'BROADCAST'; // 'BROADCAST', 'DM', 'HEARTBEAT', 'ACK'
+    this.type = (options.type || 'BROADCAST').toUpperCase(); // 'BROADCAST', 'DM', 'HEARTBEAT', 'ACK'
     this.src = options.src;
     this.srcNick = options.srcNick || 'unknown';
     this.dst = options.dst || 'broadcast';

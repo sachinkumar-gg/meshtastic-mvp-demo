@@ -108,11 +108,73 @@ const server = http.createServer((req, res) => {
 // WebSocket Server
 const wss = new WebSocketServer({ server });
 
+const Packet = require('./src/protocol/Packet');
+const clientNodes = new Map(); // ws -> { id, nick, battery, isMobile, ip }
+
 function broadcastWs(type, data) {
   const msg = JSON.stringify({ type, data });
   for (const client of wss.clients) {
     if (client.readyState === 1) { // OPEN
       client.send(msg);
+    }
+  }
+}
+
+function sendPeerListToClient(targetWs) {
+  if (targetWs.readyState !== 1) return;
+  const currentClient = clientNodes.get(targetWs);
+  const currentId = currentClient ? currentClient.id : identity.id;
+
+  const allPeersMap = new Map();
+
+  // 1. Add peers discovered via physical UDP Wi-Fi
+  for (const p of router.getPeersList()) {
+    if (p.id !== currentId && p.nick !== (currentClient ? currentClient.nick : identity.nickname)) {
+      allPeersMap.set(p.id, p);
+    }
+  }
+
+  // 2. Add other connected browser clients (e.g. phone vs laptop)
+  for (const [ws, node] of clientNodes.entries()) {
+    if (ws !== targetWs && node.id !== currentId) {
+      allPeersMap.set(node.id, {
+        id: node.id,
+        nick: node.nick,
+        ip: node.ip || 'local',
+        battery: node.battery || 80,
+        lastSeen: Date.now(),
+        hops: 0,
+        signal: 4,
+        isVirtual: false,
+        status: 'online'
+      });
+    }
+  }
+
+  // 3. If current client is a separate mobile/browser peer, include host identity if not already present
+  const hasHost = Array.from(allPeersMap.values()).some(p => p.id === identity.id || p.nick === identity.nickname);
+  if (currentId !== identity.id && !hasHost && (currentClient && currentClient.nick !== identity.nickname)) {
+    allPeersMap.set(identity.id, {
+      id: identity.id,
+      nick: identity.nickname,
+      ip: '127.0.0.1',
+      battery: identity.battery,
+      lastSeen: Date.now(),
+      hops: 0,
+      signal: 4,
+      isVirtual: false,
+      status: 'online'
+    });
+  }
+
+  const peerList = Array.from(allPeersMap.values());
+  targetWs.send(JSON.stringify({ type: 'peer:list', data: peerList }));
+}
+
+function broadcastPeerLists() {
+  for (const ws of wss.clients) {
+    if (ws.readyState === 1) {
+      sendPeerListToClient(ws);
     }
   }
 }
@@ -126,16 +188,18 @@ router.on('message:delivered', (info) => {
   broadcastWs('message:delivered', info);
 });
 
-router.on('peer:list', (peers) => {
-  broadcastWs('peer:list', peers);
+router.on('peer:list', () => {
+  broadcastPeerLists();
 });
 
 router.on('peer:joined', (peer) => {
   broadcastWs('peer:joined', peer);
+  broadcastPeerLists();
 });
 
 router.on('peer:left', (peer) => {
   broadcastWs('peer:left', peer);
+  broadcastPeerLists();
 });
 
 router.on('packet:inspector', (packet) => {
@@ -146,7 +210,9 @@ router.on('duplicate:dropped', (info) => {
   broadcastWs('duplicate:dropped', info);
 });
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  const clientIp = req.socket.remoteAddress;
+
   // Send initial snapshot
   ws.send(JSON.stringify({
     type: 'init',
@@ -168,28 +234,160 @@ wss.on('connection', (ws) => {
     }
   }));
 
+  ws.on('close', () => {
+    if (clientNodes.has(ws)) {
+      const departing = clientNodes.get(ws);
+      clientNodes.delete(ws);
+      broadcastWs('peer:left', departing);
+      broadcastPeerLists();
+    }
+  });
+
   ws.on('message', async (raw) => {
     try {
       const { action, payload } = JSON.parse(raw.toString('utf8'));
 
       switch (action) {
+        case 'register_node':
+          if (payload && payload.id) {
+            const nodeData = {
+              id: payload.id,
+              nick: payload.nick || 'peer-' + payload.id,
+              battery: payload.battery || 80,
+              isMobile: Boolean(payload.isMobile),
+              ip: clientIp,
+              lastSeen: Date.now()
+            };
+            clientNodes.set(ws, nodeData);
+
+            // Notify others
+            for (const client of wss.clients) {
+              if (client !== ws && client.readyState === 1) {
+                client.send(JSON.stringify({ type: 'peer:joined', data: nodeData }));
+              }
+            }
+            broadcastPeerLists();
+          }
+          break;
+
         case 'send_broadcast':
           if (payload && payload.text) {
-            await router.sendBroadcast(payload.text);
+            const sender = clientNodes.get(ws) || identity;
+            const srcId = payload.src || sender.id;
+            const srcNick = payload.srcNick || sender.nick || sender.nickname;
+
+            const msgRecord = {
+              id: require('crypto').randomBytes(3).toString('hex'),
+              type: 'broadcast',
+              src: srcId,
+              srcNick: srcNick,
+              dst: 'broadcast',
+              channel: 'public',
+              text: payload.text,
+              timestamp: Date.now(),
+              hops: [srcId],
+              ttl: config.DEFAULT_TTL,
+              encrypted: false,
+              status: 'delivered',
+              isOwn: false
+            };
+            msgRecord.packet = { ...msgRecord, payload: payload.text };
+
+            router.messages.push(msgRecord);
+
+            // Echo back to sender as own
+            if (ws.readyState === 1) {
+              ws.send(JSON.stringify({ type: 'message:new', data: { ...msgRecord, isOwn: true } }));
+            }
+
+            // Send to other connected browser clients
+            for (const client of wss.clients) {
+              if (client !== ws && client.readyState === 1) {
+                client.send(JSON.stringify({ type: 'message:new', data: msgRecord }));
+              }
+            }
+
+            // Also broadcast over physical Wi-Fi UDP
+            const packet = new Packet(msgRecord.packet);
+            wifiTransport.broadcast(packet);
           }
           break;
 
         case 'send_dm':
           if (payload && payload.dst && payload.text) {
-            await router.sendDirect(payload.dst, payload.text, payload.encrypt !== false);
+            const sender = clientNodes.get(ws) || identity;
+            const srcId = payload.src || sender.id;
+            const srcNick = payload.srcNick || sender.nick || sender.nickname;
+            const msgId = require('crypto').randomBytes(3).toString('hex');
+            const isEnc = payload.encrypt !== false;
+
+            const dmRecord = {
+              id: msgId,
+              type: 'dm',
+              src: srcId,
+              srcNick: srcNick,
+              dst: payload.dst,
+              dstNick: payload.dst,
+              channel: srcNick, // For receiver, channel is sender
+              text: payload.text,
+              timestamp: Date.now(),
+              hops: [srcId],
+              ttl: config.DEFAULT_TTL,
+              encrypted: isEnc,
+              status: 'delivered',
+              isOwn: false
+            };
+            dmRecord.packet = { ...dmRecord, payload: payload.text };
+
+            // Check if recipient is a connected browser client
+            let deliveredLocally = false;
+            for (const [clientWs, clientNode] of clientNodes.entries()) {
+              if (clientWs !== ws && (clientNode.nick.toLowerCase() === payload.dst.toLowerCase() || clientNode.id === payload.dst)) {
+                if (clientWs.readyState === 1) {
+                  clientWs.send(JSON.stringify({ type: 'message:new', data: dmRecord }));
+                  deliveredLocally = true;
+                }
+                break;
+              }
+            }
+
+            // Echo back to sender
+            if (ws.readyState === 1) {
+              ws.send(JSON.stringify({
+                type: 'message:new',
+                data: {
+                  ...dmRecord,
+                  channel: payload.dst,
+                  isOwn: true,
+                  status: deliveredLocally ? 'delivered' : 'sent'
+                }
+              }));
+
+              if (deliveredLocally) {
+                ws.send(JSON.stringify({
+                  type: 'message:delivered',
+                  data: { msgId: msgId, refMsgId: msgId, deliveredTo: payload.dst }
+                }));
+              }
+            }
+
+            // If not delivered locally, route through router & UDP transport
+            if (!deliveredLocally) {
+              await router.sendDirect(payload.dst, payload.text, isEnc);
+            }
           }
           break;
 
         case 'set_nick':
           if (payload && payload.nick) {
-            identity.setNickname(payload.nick);
-            router.broadcastHeartbeat();
-            broadcastWs('identity:update', identity.getPublicProfile());
+            if (clientNodes.has(ws)) {
+              clientNodes.get(ws).nick = payload.nick;
+              broadcastPeerLists();
+            } else {
+              identity.setNickname(payload.nick);
+              router.broadcastHeartbeat();
+              broadcastWs('identity:update', identity.getPublicProfile());
+            }
           }
           break;
 

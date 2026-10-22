@@ -7,12 +7,34 @@
 class MeshApp {
   constructor() {
     this.ws = null;
-    this.identity = null;
-    this.peers = [];
     this.lastPacket = null;
     this.activeView = 'chat-view';
     this.networkUrls = [];
     this.localIps = [];
+
+    // Persistent browser/device identity
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+    let storedId = localStorage.getItem('mesh_node_id');
+    let storedNick = localStorage.getItem('mesh_node_nick');
+
+    if (!storedId) {
+      storedId = Math.random().toString(16).substring(2, 6);
+      localStorage.setItem('mesh_node_id', storedId);
+    }
+
+    if (!storedNick) {
+      storedNick = isMobile ? 'phone' : (isLocalhost ? 'sachin' : 'peer-' + storedId);
+      localStorage.setItem('mesh_node_nick', storedNick);
+    }
+
+    this.identity = {
+      id: storedId,
+      nick: storedNick,
+      isMobile: isMobile,
+      battery: Math.floor(Math.random() * 20) + 78
+    };
 
     // DOM Elements
     this.identityBadge = document.getElementById('identity-badge');
@@ -321,10 +343,16 @@ class MeshApp {
   sendChatMessage(text) {
     const channel = window.chatController.currentChannel;
     if (channel === 'public') {
-      this.sendAction('send_broadcast', { text });
+      this.sendAction('send_broadcast', {
+        src: this.identity.id,
+        srcNick: this.identity.nick,
+        text
+      });
     } else {
       // Direct message with peer
       this.sendAction('send_dm', {
+        src: this.identity.id,
+        srcNick: this.identity.nick,
         dst: channel,
         text,
         encrypt: true
@@ -348,7 +376,9 @@ class MeshApp {
 
     this.ws.onopen = () => {
       console.log('[MESHCOMM] Connected to local node server');
-      this.showToast('Connected to local mesh node server');
+      this.showToast('Connected to mesh node server');
+      this.updateHeader();
+      this.sendAction('register_node', this.identity);
     };
 
     this.ws.onclose = () => {
@@ -373,7 +403,9 @@ class MeshApp {
   handleWsEvent(type, data) {
     switch (type) {
       case 'init':
-        this.identity = data.identity;
+        if (!this.identity || !this.identity.id) {
+          this.identity = data.identity;
+        }
         this.peers = data.peers || [];
         this.networkUrls = data.networkUrls || [];
         this.localIps = data.localIps || [];
@@ -399,10 +431,12 @@ class MeshApp {
         break;
 
       case 'identity:update':
-        this.identity = data;
-        this.updateHeader();
-        if (window.nodesViewController) {
-          window.nodesViewController.setLocalIdentity(this.identity);
+        if (data.id === this.identity.id) {
+          this.identity = data;
+          this.updateHeader();
+          if (window.nodesViewController) {
+            window.nodesViewController.setLocalIdentity(this.identity);
+          }
         }
         break;
 
