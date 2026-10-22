@@ -490,17 +490,12 @@ html, body {
   color: var(--fg);
   font-family: var(--font-mono);
   font-size: 14px;
-  caret-color: transparent; /* custom cursor */
+  caret-color: var(--green);
+  caret-shape: block;
 }
 
 .blinking-cursor {
-  display: inline-block;
-  color: var(--fg);
-  animation: blink 1s step-start infinite;
-}
-
-@keyframes blink {
-  50% { opacity: 0; }
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
