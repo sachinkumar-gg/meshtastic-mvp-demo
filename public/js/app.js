@@ -11,6 +11,8 @@ class MeshApp {
     this.peers = [];
     this.lastPacket = null;
     this.activeView = 'chat-view';
+    this.networkUrls = [];
+    this.localIps = [];
 
     // DOM Elements
     this.identityBadge = document.getElementById('identity-badge');
@@ -166,6 +168,11 @@ class MeshApp {
         this.printHelp();
         break;
 
+      case '/ip':
+      case '/info':
+        this.printNetworkInfo();
+        break;
+
       case '/dm':
         if (!arg) {
           this.showToast('Usage: /dm <nickname>');
@@ -261,12 +268,37 @@ class MeshApp {
     }
   }
 
+  printNetworkInfo() {
+    const lines = [
+      '── NETWORK ACCESS ─────────────────────────────────────────────',
+      ` Local machine: http://localhost:${window.location.port || 3000}`
+    ];
+    if (this.networkUrls && this.networkUrls.length > 0) {
+      for (const url of this.networkUrls) {
+        lines.push(` Phone/Laptop:  ${url}`);
+      }
+      lines.push(' ');
+      lines.push(' Connect your phone or second laptop to the same');
+      lines.push(' Wi-Fi or phone hotspot, and open the URL above.');
+    } else {
+      lines.push(' No external IP detected yet.');
+      lines.push(' Connect to Wi-Fi or mobile hotspot to share with other devices.');
+    }
+    lines.push('───────────────────────────────────────────────────────────────');
+
+    for (const line of lines) {
+      window.chatController.addSystemMessage(line);
+    }
+    this.switchView('chat-view');
+  }
+
   printHelp() {
     const helpLines = [
       '── COMMANDS ───────────────────────────────────────────────────',
       ' /dm <nick>           Open a direct message conversation',
       ' /public              Switch back to public broadcast channel',
       ' /nick <name>         Change your node nickname',
+      ' /ip                  Show network URL for phone / second laptop',
       ' /map                 Switch to mesh network map view',
       ' /nodes               Switch to nodes table view',
       ' /inspect             Open packet inspector for latest packet',
@@ -343,6 +375,8 @@ class MeshApp {
       case 'init':
         this.identity = data.identity;
         this.peers = data.peers || [];
+        this.networkUrls = data.networkUrls || [];
+        this.localIps = data.localIps || [];
         this.updateHeader();
 
         if (window.nodesViewController) {

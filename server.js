@@ -1,6 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { WebSocketServer } = require('ws');
 
 // Parse CLI args
@@ -24,6 +25,22 @@ const BleTransport = require('./src/transport/BleTransport');
 const LoraTransport = require('./src/transport/LoraTransport');
 const Router = require('./src/protocol/Router');
 const meshTopology = require('./src/simulation/meshTopology');
+
+// Discover all active local network IPv4 addresses
+function getLocalIpAddresses() {
+  const addresses = [];
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      for (const net of interfaces[name]) {
+        if (net.family === 'IPv4' && !net.internal) {
+          addresses.push({ interface: name, address: net.address });
+        }
+      }
+    }
+  } catch (e) {}
+  return addresses;
+}
 
 // Initialize Transports
 const wifiTransport = new WifiTransport({
@@ -145,7 +162,9 @@ wss.on('connection', (ws) => {
       },
       virtualNodes: meshTopology.virtualNodes,
       offlineVirtualNodes: Array.from(meshTopology.offlineNodes),
-      internetStatus: 'NO INTERNET'
+      internetStatus: 'NO INTERNET',
+      localIps: getLocalIpAddresses(),
+      networkUrls: getLocalIpAddresses().map(item => `http://${item.address}:${config.HTTP_PORT}`)
     }
   }));
 
@@ -240,13 +259,30 @@ async function start() {
   router.start();
 
   server.listen(config.HTTP_PORT, '0.0.0.0', () => {
-    console.log(`====================================================`);
+    const localIps = getLocalIpAddresses();
+    console.log(`\n====================================================`);
     console.log(`[MESHCOMM] Node: ${identity.nickname}#${identity.id}`);
-    console.log(`[MESHCOMM] Web UI: http://localhost:${config.HTTP_PORT}`);
-    console.log(`[MESHCOMM] UDP Radio: port ${config.UDP_PORT}`);
-    console.log(`[MESHCOMM] Transport: WiFi (active) | BLE & LoRa (ready)`);
-    console.log(`[MESHCOMM] Internet: NO INTERNET (100% local mesh link)`);
-    console.log(`====================================================`);
+    console.log(`----------------------------------------------------`);
+    console.log(`  Local UI:    http://localhost:${config.HTTP_PORT}`);
+    if (localIps.length > 0) {
+      for (const item of localIps) {
+        console.log(`  Network UI:  http://${item.address}:${config.HTTP_PORT}  (${item.interface})`);
+      }
+    } else {
+      console.log(`  Network UI:  (Connect to Wi-Fi / Hotspot to see local IP)`);
+    }
+    console.log(`  UDP Radio:   port ${config.UDP_PORT}`);
+    console.log(`  Transport:   WiFi (active) | BLE & LoRa (ready)`);
+    console.log(`  Internet:    NO INTERNET (100% local mesh link)`);
+    console.log(`----------------------------------------------------`);
+    console.log(`📱 TO OPEN ON ANOTHER PHONE OR LAPTOP ON SAME NETWORK:`);
+    if (localIps.length > 0) {
+      console.log(`   1. Ensure phone/laptop is on the same Wi-Fi / hotspot`);
+      console.log(`   2. In browser, open: http://${localIps[0].address}:${config.HTTP_PORT}`);
+    } else {
+      console.log(`   Connect to your phone hotspot or Wi-Fi to share link`);
+    }
+    console.log(`====================================================\n`);
   });
 }
 
