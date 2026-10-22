@@ -54,8 +54,18 @@ class ChatController {
   }
 
   addMessage(msgRecord) {
-    // Avoid exact duplicate record insertion
-    const exists = this.messages.some(m => m.id === msgRecord.id);
+    const id = msgRecord.id || msgRecord.msgId || (msgRecord.packet && (msgRecord.packet.id || msgRecord.packet.msgId));
+
+    // Check if we already have this message by ID or identical content, sender, and timestamp
+    const exists = this.messages.some(m => {
+      const existingId = m.id || m.msgId || (m.packet && (m.packet.id || m.packet.msgId));
+      if (id && existingId && id === existingId) return true;
+      if (m.text === msgRecord.text && m.src === msgRecord.src && Math.abs((m.timestamp || 0) - (msgRecord.timestamp || 0)) < 4000) {
+        return true;
+      }
+      return false;
+    });
+
     if (!exists) {
       this.messages.push(msgRecord);
       this.render();

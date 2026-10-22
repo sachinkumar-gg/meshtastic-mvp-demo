@@ -270,14 +270,22 @@ wss.on('connection', (ws, req) => {
           }
           break;
 
+        case 'heartbeat':
+          if (clientNodes.has(ws)) {
+            clientNodes.get(ws).lastSeen = Date.now();
+          }
+          break;
+
         case 'send_broadcast':
           if (payload && payload.text) {
             const sender = clientNodes.get(ws) || identity;
             const srcId = payload.src || sender.id;
             const srcNick = payload.srcNick || sender.nick || sender.nickname;
+            const msgId = payload.msgId || require('crypto').randomBytes(3).toString('hex');
 
             const msgRecord = {
-              id: require('crypto').randomBytes(3).toString('hex'),
+              id: msgId,
+              msgId: msgId,
               type: 'broadcast',
               src: srcId,
               srcNick: srcNick,
@@ -291,8 +299,10 @@ wss.on('connection', (ws, req) => {
               status: 'delivered',
               isOwn: false
             };
-            msgRecord.packet = { ...msgRecord, payload: payload.text };
+            msgRecord.packet = { ...msgRecord, msgId, payload: payload.text };
 
+            // Crucial: mark as seen so local UDP loopback drops it
+            router.seenMsgIds.set(msgId, Date.now());
             router.messages.push(msgRecord);
 
             // Echo back to sender as own
@@ -318,11 +328,12 @@ wss.on('connection', (ws, req) => {
             const sender = clientNodes.get(ws) || identity;
             const srcId = payload.src || sender.id;
             const srcNick = payload.srcNick || sender.nick || sender.nickname;
-            const msgId = require('crypto').randomBytes(3).toString('hex');
+            const msgId = payload.msgId || require('crypto').randomBytes(3).toString('hex');
             const isEnc = payload.encrypt !== false;
 
             const dmRecord = {
               id: msgId,
+              msgId: msgId,
               type: 'dm',
               src: srcId,
               srcNick: srcNick,
@@ -337,7 +348,10 @@ wss.on('connection', (ws, req) => {
               status: 'delivered',
               isOwn: false
             };
-            dmRecord.packet = { ...dmRecord, payload: payload.text };
+            dmRecord.packet = { ...dmRecord, msgId, payload: payload.text };
+
+            // Mark as seen in router
+            router.seenMsgIds.set(msgId, Date.now());
 
             // Check if recipient is a connected browser client
             let deliveredLocally = false;

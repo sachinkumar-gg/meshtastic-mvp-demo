@@ -379,6 +379,14 @@ class MeshApp {
       this.showToast('Connected to mesh node server');
       this.updateHeader();
       this.sendAction('register_node', this.identity);
+
+      if (!this.heartbeatTimer) {
+        this.heartbeatTimer = setInterval(() => {
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.sendAction('heartbeat', { id: this.identity.id });
+          }
+        }, 3000);
+      }
     };
 
     this.ws.onclose = () => {
